@@ -23,14 +23,14 @@ class ModelEmbeddings(nn.Module):
         @param vocab (Vocab): Vocabulary object containing src and tgt languages
                               See vocab.py for documentation.
         """
-        super(ModelEmbeddings, self).__init__()
+        super(ModelEmbeddings, self).__init__() ## python3 可以改成直接寫 super().__init__()
         self.embed_size = embed_size
 
         # default values
         self.source = None
         self.target = None
 
-        src_pad_token_idx = vocab.src['<pad>']
+        src_pad_token_idx = vocab.src['<pad>'] #取得<pad>代表的idx
         tgt_pad_token_idx = vocab.tgt['<pad>']
 
         ### YOUR CODE HERE (~2 Lines)
@@ -50,7 +50,8 @@ class ModelEmbeddings(nn.Module):
         ### Use the following docs to properly initialize these variables:
         ###     Embedding Layer:
         ###         https://pytorch.org/docs/stable/nn.html#torch.nn.Embedding
-        
+        self.source = nn.Embedding(len(vocab.src), embed_size, padding_idx = src_pad_token_idx)
+        self.target = nn.Embedding(len(vocab.tgt), embed_size, padding_idx = tgt_pad_token_idx) 
 
         ### END YOUR CODE
 

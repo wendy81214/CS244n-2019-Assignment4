@@ -17,7 +17,7 @@ import torch.nn as nn
 import torch.nn.functional as F
 
 
-def pad_sents(sents, pad_token):
+def pad_sents(sents, pad_token):  ### 其實是在實作torch.nn.utils.rnn.pad_sequence()的功能 ###
     """ Pad list of sentences according to the longest sentence in the batch.
     @param sents (list[list[str]]): list of sentences, where each sentence
                                     is represented as a list of words

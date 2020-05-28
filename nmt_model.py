@@ -72,8 +72,14 @@ class NMT(nn.Module):
         ###         https://pytorch.org/docs/stable/nn.html#torch.nn.Linear
         ###     Dropout Layer:
         ###         https://pytorch.org/docs/stable/nn.html#torch.nn.Dropout
-
-
+        self.encoder = nn.LSTM(embed_size, self.hidden_size, bias=True, dropout=self.dropout_rate, bidirectional=True)
+        self.decoder = nn.LSTMCell((embed_size + self.hidden_size), self.hidden_size, bias=True)
+        self.h_projection = nn.Linear(2 * self.hidden_size, self.hidden_size, bias=False)
+        self.c_projection = nn.Linear(2 * self.hidden_size, self.hidden_size, bias=False)
+        self.att_projection = nn.Linear(2 * self.hidden_size, self.hidden_size, bias=False)
+        self.combined_output_projection = nn.Linear(3 * self.hidden_size, self.hidden_size, bias=False)
+        self.target_vocab_projection = nn.Linear(self.hidden_size, len(self.vocab.tgt), bias=False)
+        self.dropout = nn.Dropout(p=self.dropout_rate)
         ### END YOUR CODE
 
 
@@ -165,7 +171,16 @@ class NMT(nn.Module):
 
 
         ### END YOUR CODE
-
+        X = self.model_embeddings.source(source_padded)
+        X = pack_padded_sequence(X, source_lengths)
+        enc_hiddens, (last_hidden, last_cell) = self.encoder(X)
+        enc_hiddens = pad_packed_sequence(enc_hiddens)[0] # returns Tuple of Tensor containing the padded sequence, and a Tensor containing the list of lengths of each sequence in the batch
+        enc_hiddens = enc_hiddens.permute(1, 0, 2) # permute enc_hiddens from (src_len, b, h*2) to (b, src_len, h*2)
+        init_decoder_hidden = torch.cat((last_hidden[0], last_hidden[1]), 1) # last_hidden[0]:forward, last_hidden[1]:backward
+        init_decoder_hidden = self.h_projection(init_decoder_hidden)
+        init_decoder_cell = torch.cat((last_cell[0], last_cell[1]), 1)
+        init_decoder_cell = self.c_projection(init_decoder_cell)
+        dec_init_state = (init_decoder_hidden, init_decoder_cell)
         return enc_hiddens, dec_init_state
 
 
@@ -232,8 +247,15 @@ class NMT(nn.Module):
         ###         https://pytorch.org/docs/stable/torch.html#torch.cat
         ###     Tensor Stacking:
         ###         https://pytorch.org/docs/stable/torch.html#torch.stack
-
-
+        enc_hiddens_proj = self.att_projection(enc_hiddens)
+        Y = self.model_embeddings.target(target_padded)
+        for Y_t in torch.split(Y, 1):
+            Y_t = torch.squeeze(Y_t, dim=0)
+            Ybar_t = torch.cat((Y_t, o_prev), 1)
+            dec_state, o_t, e_t = self.step(Ybar_t, dec_state, enc_hiddens, enc_hiddens_proj, enc_masks)
+            combined_outputs.append(o_t)
+            o_prev = o_t
+        combined_outputs = torch.stack(combined_outputs)
         ### END YOUR CODE
 
         return combined_outputs
@@ -290,11 +312,15 @@ class NMT(nn.Module):
         ###         https://pytorch.org/docs/stable/torch.html#torch.unsqueeze
         ###     Tensor Squeeze:
         ###         https://pytorch.org/docs/stable/torch.html#torch.squeeze
-
+        dec_state = self.decoder(Ybar_t, dec_state)
+        dec_hidden, dec_cell = dec_state
+        e_t = torch.bmm(enc_hiddens_proj, torch.unsqueeze(dec_hidden, 2)) # bmm( (b, src_len, h), (b, h, 1) )--> (b, src_len, 1) 
+        e_t = torch.squeeze(e_t, 2) # e_t --> (b, src_len)
 
         ### END YOUR CODE
 
-        # Set e_t to -inf where enc_masks has 1
+        # Set e_t to -inf where enc_masks has 1 --> enc_masks 的值是 1:是多餘的長度（padding 補 0的部分）
+        # 可參考例子： https://blog.csdn.net/NewDreamstyle/article/details/94139279
         if enc_masks is not None:
             e_t.data.masked_fill_(enc_masks.byte(), -float('inf'))
 
@@ -325,7 +351,13 @@ class NMT(nn.Module):
         ###         https://pytorch.org/docs/stable/torch.html#torch.cat
         ###     Tanh:
         ###         https://pytorch.org/docs/stable/torch.html#torch.tanh
-
+        m = torch.nn.Softmax(1) # 哪一個 dimension 要 apply softmax (哪一個 dim 值加總要為 1)
+        alpha_t = m(e_t)
+        a_t = torch.bmm(torch.unsqueeze(alpha_t, 1), enc_hiddens) # bmm( (b, 1, src_len), (b, src_len, 2h) )--> (b, 1, 2h)
+        a_t = torch.squeeze(a_t, 1) # (b, 1, 2h) -> (b, 2h)
+        U_t = torch.cat((dec_hidden, a_t), 1) # U_t -> shape (b, 3h)
+        V_t = self.combined_output_projection(U_t)
+        O_t = self.dropout(torch.tanh(V_t))
 
         ### END YOUR CODE
 
@@ -344,7 +376,7 @@ class NMT(nn.Module):
         """
         enc_masks = torch.zeros(enc_hiddens.size(0), enc_hiddens.size(1), dtype=torch.float)
         for e_id, src_len in enumerate(source_lengths):
-            enc_masks[e_id, src_len:] = 1
+            enc_masks[e_id, src_len:] = 1 # 多餘的長度設為 1
         return enc_masks.to(self.device)
 
 

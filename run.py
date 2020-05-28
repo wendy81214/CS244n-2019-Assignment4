@@ -127,7 +127,7 @@ def train(args: Dict):
                 hidden_size=int(args['--hidden-size']),
                 dropout_rate=float(args['--dropout']),
                 vocab=vocab)
-    model.train()
+    model.train() # 設定到 train mode（並非真的開始train)
 
     uniform_init = float(args['--uniform-init'])
     if np.abs(uniform_init) > 0.:
@@ -141,7 +141,7 @@ def train(args: Dict):
     device = torch.device("cuda:0" if args['--cuda'] else "cpu")
     print('use device: %s' % device, file=sys.stderr)
 
-    model = model.to(device)
+    model = model.to(device) # 指定 model 給某個device
 
     optimizer = torch.optim.Adam(model.parameters(), lr=float(args['--lr']))
 
